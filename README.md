@@ -1,6 +1,6 @@
 ## bsd-truncate-utils
 
-This is the port of FreeBSD's truncate utility to other Unices. We plan to actively tracks changes in the FreeBSD SVN repository.
+This is a port of FreeBSD's truncate utility to other Unices. We plan to actively tracks changes in the FreeBSD SVN repository.
 
 
 ## References -
