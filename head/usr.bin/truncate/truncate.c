@@ -45,6 +45,7 @@ static const char rcsid[] =
 static void	usage(void);
 
 static int	no_create;
+static int	do_allocate;
 static int	do_relative;
 static int	do_refer;
 static int	got_size;
@@ -63,8 +64,11 @@ main(int argc, char **argv)
 	rsize = tsize = sz = 0;
 	error = 0;
 	rname = NULL;
-	while ((ch = getopt(argc, argv, "cr:s:")) != -1)
+	while ((ch = getopt(argc, argv, "acr:s:")) != -1)
 		switch (ch) {
+		case 'a':
+			do_allocate = 1;
+			break;
 		case 'c':
 			no_create = 1;
 			break;
@@ -122,12 +126,12 @@ main(int argc, char **argv)
 			}
 			continue;
 		}
+		if (fstat(fd, &sb) == -1) {
+			warn("%s", fname);
+			error++;
+			continue;
+		}
 		if (do_relative) {
-			if (fstat(fd, &sb) == -1) {
-				warn("%s", fname);
-				error++;
-				continue;
-			}
 			oflow = sb.st_size + rsize;
 			if (oflow < (sb.st_size + rsize)) {
 				errno = EFBIG;
@@ -135,12 +139,19 @@ main(int argc, char **argv)
 				error++;
 				continue;
 			}
-			tsize = oflow;
+			tsize = oflow < 0 ? 0 : oflow;
+		} else {
+			rsize = tsize - sb.st_size;
 		}
-		if (tsize < 0)
-			tsize = 0;
 
-		if (ftruncate(fd, tsize) == -1) {
+		/*
+		 * Use posix_fallocate() when we need to grow the file with
+		 * the required on-disk storage.  In all other cases, use
+		 * ftruncate().
+		 */
+		if (((do_allocate && rsize > 0) ?
+		    posix_fallocate(fd, sb.st_size, rsize) :
+		    ftruncate(fd, tsize)) == -1) {
 			warn("%s", fname);
 			error++;
 			continue;
@@ -155,8 +166,8 @@ main(int argc, char **argv)
 static void
 usage(void)
 {
-	fprintf(stderr, "%s\n%s\n",
-	    "usage: truncate [-c] -s [+|-]size[K|k|M|m|G|g|T|t] file ...",
-	    "       truncate [-c] -r rfile file ...");
+	fprintf(stderr, "usage: %s\n       %s\n",
+	    "truncate [-ac] -s [+|-]size[K|k|M|m|G|g|T|t|P|p|E|e] file ...",
+	    "truncate [-ac] -r rfile file ...");
 	exit(EXIT_FAILURE);
 }
