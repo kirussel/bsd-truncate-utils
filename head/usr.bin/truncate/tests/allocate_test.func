@@ -1,0 +1,21 @@
+atf_init_test_cases()
+{
+	TRUNC="truncate -a"
+
+	atf_add_test_case illegal_option
+	atf_add_test_case illegal_size
+	atf_add_test_case too_large_size
+	atf_add_test_case opt_c
+	atf_add_test_case opt_rs
+	atf_add_test_case no_files
+	atf_add_test_case bad_refer
+	atf_add_test_case bad_truncate
+	atf_add_test_case cannot_open
+	atf_add_test_case new_absolute_grow
+	atf_add_test_case new_absolute_shrink
+	atf_add_test_case new_relative_grow
+	atf_add_test_case new_relative_shrink
+	atf_add_test_case reference
+	atf_add_test_case new_zero
+	atf_add_test_case negative
+}
