@@ -1,0 +1,181 @@
+.\"
+.\" Copyright (c) 2000 Sheldon Hearn <sheldonh@FreeBSD.org>.
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.\" $FreeBSD$
+.\"
+.Dd November 8, 2015
+.Dt FALLOCATE 1
+.Os
+.Sh NAME
+.Nm fallocate
+.Nd pre-allocate storage for a range in a file
+.Sh SYNOPSIS
+.Nm
+.Op Fl c
+.Bk -words
+.Oo
+.Sm off
+.Fl o Xo
+.Op Cm + | -
+.Ar offset
+.Op Cm K | k | M | m | G | g | T | t | P | p | E | e
+.Sm on
+.Oc
+.Xc
+.Ek
+.Bk -words
+.Sm off
+.Fl s Xo
+.Op Cm + | -
+.Ar size
+.Op Cm K | k | M | m | G | g | T | t | P | p | E | e
+.Sm on
+.Xc
+.Ek
+.Ar
+.Sh DESCRIPTION
+The
+.Nm
+utility allocates the storage in the range provided
+for regular file given on the command-line.
+Any existing file data in the specified range is unmodified.
+.Pp
+The following options are available:
+.Bl -tag -width indent
+.It Fl c
+Do not create files if they do not exist.
+The
+.Nm
+utility does not treat this as an error.
+No error messages are displayed
+and the exit value is not affected.
+.It Fl l Xo
+.Sm off
+.Op Cm + | -
+.Ar size
+.Op Cm K | k | M | m | G | g | T | t | P | p | E | e
+.Sm on
+.Xc
+If the
+.Ar size
+argument is preceded by a plus sign
+.Pq Cm + ,
+the length of the region will be current size of the file plus
+this number of bytes.
+If the
+.Ar size
+argument is preceded by a dash
+.Pq Cm - ,
+the length of the region will be the current size of the file minus
+this number of bytes,
+to a minimum length of one byte.
+Otherwise, the
+.Ar size
+argument specifies an absolute length of the region that
+should be allocated.
+.Pp
+.It Fl o Xo
+.Sm off
+.Op Cm + | -
+.Ar offset
+.Op Cm K | k | M | m | G | g | T | t | P | p | E | e
+.Sm on
+.Xc
+If the
+.Ar offset
+argument is preceded by a plus sign
+.Pq Cm + ,
+the start of the region will be current size of the file plus
+this number of bytes.
+If the
+.Ar offset
+argument is preceded by a dash
+.Pq Cm - ,
+the start of the region will be the current size of the file minus
+this number of bytes.
+Otherwise, the
+.Ar size
+argument specifies an absolute start of the region that
+should be allocated.  The default is the start of the file.
+.Pp
+The
+.Ar offset
+argument may be suffixed with one of
+.Cm K ,
+.Cm M ,
+.Cm G ,
+.Cm P
+or
+.Cm E
+(either upper or lower case) to indicate a multiple of
+Kilobytes, Megabytes, Gigabytes, Terabytes, Petabytes or Exabytes
+respectively.
+.El
+.Pp
+Required storage for the range
+.Fa offset
+to
+.Fa offset +
+.Fa len
+in the file will be allocated upon successful return.
+If
+.Fa offset +
+.Fa length
+is beyond the current file size, then
+.Fn posix_fallocate
+will adjust the file size to
+.Fa offset +
+.Fa length .
+Otherwise, the file size will not be changed.
+.Pp
+.Sh EXIT STATUS
+.Ex -std
+If the operation fails for an argument,
+.Nm
+will issue a diagnostic
+and continue processing the remaining arguments.
+.Sh SEE ALSO
+.Xr dd 1 ,
+.Xr touch 1 ,
+.Xr truncate 1
+.Xr posix_fallocate 2
+.Sh STANDARDS
+The
+.Nm
+utility conforms to no known standards.
+.Sh HISTORY
+The
+.Nm
+utility first appeared in
+.Fx 11 .
+.Sh AUTHORS
+The
+.Nm
+functionality was added to the truncate utility, originally written by
+.An Sheldon Hearn Aq Mt sheldonh@starjuice.net .
+.Sh BUGS
+A
+.Ar length
+argument of zero will always fail.

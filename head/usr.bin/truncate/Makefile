@@ -4,6 +4,7 @@
 
 PROG=	truncate
 LIBADD=	util
+LINKS=	${BINDIR}/truncate ${BINDIR}/fallocate
 
 .if ${MK_TESTS} != "no"
 SUBDIR+= tests

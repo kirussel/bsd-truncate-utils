@@ -36,54 +36,79 @@ static const char rcsid[] =
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <libgen.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include <libutil.h>
 
-static void	usage(void);
+struct file_offset {
+	int	initialized;
+	int	relative;
+	off_t	sz;
+};
+
+static int	offset_init(struct file_offset*, const char*);
+static off_t	offset_relative(struct file_offset*, struct stat*);
+static void	usage(int);
 
 static int	no_create;
-static int	do_relative;
+static int	do_allocate;
 static int	do_refer;
-static int	got_size;
+static struct file_offset	length;
+static struct file_offset	offset;
 
 int
 main(int argc, char **argv)
 {
 	struct stat	sb;
 	mode_t	omode;
-	off_t	oflow, rsize, sz, tsize;
-	uint64_t usz;
+	off_t	tsize, toffset;
 	int	ch, error, fd, oflags;
 	char   *fname, *rname;
+	const char   *optstring;
+
+	/* Are we fallocate(1) or truncate(1)? */
+	if (strcmp(basename(argv[0]), "fallocate") == 0) {
+		do_allocate = 1;
+		optstring = "cl:o:";
+	} else {
+		do_allocate = 0;
+		optstring = "cr:s:";
+	}
 
 	fd = -1;
-	rsize = tsize = sz = 0;
+	toffset = tsize = 0;
 	error = 0;
 	rname = NULL;
-	while ((ch = getopt(argc, argv, "cr:s:")) != -1)
+	while ((ch = getopt(argc, argv, optstring)) != -1)
 		switch (ch) {
 		case 'c':
 			no_create = 1;
+			break;
+		case 'l':
+			if (offset_init(&length, optarg) != 0)
+			    errx(EXIT_FAILURE,
+			    "invalid length argument `%s'", optarg);
+			break;
+		case 'o':
+			if (offset_init(&offset, optarg) != 0)
+			    errx(EXIT_FAILURE,
+			    "invalid offset argument `%s'", optarg);
 			break;
 		case 'r':
 			do_refer = 1;
 			rname = optarg;
 			break;
 		case 's':
-			do_relative = *optarg == '+' || *optarg == '-';
-			if (expand_number(do_relative ? optarg + 1 : optarg,
-			    &usz) == -1 || (off_t)usz < 0)
-				errx(EXIT_FAILURE,
-				    "invalid size argument `%s'", optarg);
-
-			sz = (*optarg == '-') ? -(off_t)usz : (off_t)usz;
-			got_size = 1;
+			if (offset_init(&length, optarg) != 0)
+			    errx(EXIT_FAILURE,
+			    "invalid size argument `%s'", optarg);
 			break;
 		default:
-			usage();
+			usage(do_allocate);
 			/* NOTREACHED */
 		}
 
@@ -91,20 +116,26 @@ main(int argc, char **argv)
 	argc -= optind;
 
 	/*
-	 * Exactly one of do_refer or got_size must be specified.  Since
-	 * do_relative implies got_size, do_relative and do_refer are
-	 * also mutually exclusive.  See usage() for allowed invocations.
+	 * Exactly one of do_refer or length.initialized must be specified.
+	 * Since length.relative implies length.initialized, length.relative
+	 * and do_refer are also mutually exclusive.  See usage() for allowed
+	 * invocations.
 	 */
-	if (do_refer + got_size != 1 || argc < 1)
-		usage();
+	if (do_refer + length.initialized != 1 || argc < 1)
+		usage(do_allocate);
 	if (do_refer) {
 		if (stat(rname, &sb) == -1)
 			err(EXIT_FAILURE, "%s", rname);
 		tsize = sb.st_size;
-	} else if (do_relative)
-		rsize = sz;
-	else
-		tsize = sz;
+	} else
+		tsize = length.sz;
+
+	if (do_allocate) {
+		if (offset.initialized == 0 &&
+		    offset_init(&offset, "0") != 0)
+		    err(EXIT_FAILURE, "invalid offset argument `%s'", "0");
+		toffset = offset.sz;
+	}
 
 	if (no_create)
 		oflags = O_WRONLY;
@@ -122,25 +153,29 @@ main(int argc, char **argv)
 			}
 			continue;
 		}
-		if (do_relative) {
+		if (length.relative || offset.relative) {
 			if (fstat(fd, &sb) == -1) {
 				warn("%s", fname);
 				error++;
 				continue;
 			}
-			oflow = sb.st_size + rsize;
-			if (oflow < (sb.st_size + rsize)) {
-				errno = EFBIG;
+			if (length.initialized && length.relative &&
+			    (tsize = offset_relative(&length, &sb)) < 0) {
 				warn("%s", fname);
 				error++;
 				continue;
 			}
-			tsize = oflow;
+			if (offset.initialized && offset.relative &&
+			    (toffset = offset_relative(&offset, &sb)) < 0) {
+				warn("%s", fname);
+				error++;
+				continue;
+			}
 		}
-		if (tsize < 0)
-			tsize = 0;
 
-		if (ftruncate(fd, tsize) == -1) {
+		if (((do_allocate != 0) ?
+		    (errno = posix_fallocate(fd, toffset, tsize)) :
+		    ftruncate(fd, tsize)) != 0) {
 			warn("%s", fname);
 			error++;
 			continue;
@@ -152,11 +187,52 @@ main(int argc, char **argv)
 	return error ? EXIT_FAILURE : EXIT_SUCCESS;
 }
 
-static void
-usage(void)
+static off_t
+offset_relative(struct file_offset *pfo, struct stat *psb)
 {
-	fprintf(stderr, "%s\n%s\n",
-	    "usage: truncate [-c] -s [+|-]size[K|k|M|m|G|g|T|t] file ...",
-	    "       truncate [-c] -r rfile file ...");
+	off_t oflow;
+
+	if (pfo->initialized == 0 || pfo->relative == 0) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	oflow = psb->st_size + pfo->sz;
+	if (oflow < (psb->st_size + pfo->sz)) {
+		errno = EFBIG;
+		return -1;
+	}
+
+	return (oflow < 0 ? 0 : oflow);
+}
+
+static int
+offset_init(struct file_offset *pfo, const char *number)
+{
+	uint64_t usz;
+
+	pfo->relative = *number == '+' || *number == '-';
+	if (expand_number(pfo->relative ? number + 1 : number,
+	    &usz) == -1 || (off_t)usz < 0) {
+		errno = EFBIG;
+		return -1;
+	}
+
+	pfo->sz = (*number == '-') ? -(off_t)usz : (off_t)usz;
+	pfo->initialized = 1;
+
+	return 0;
+}
+
+static void
+usage(int do_allocate)
+{
+        if (do_allocate)
+            fprintf(stderr, "usage: fallocate %s file ...\n",
+                "[-o [+|-]offset] -l [+|-]size[K|k|M|m|G|g|T|t|P|p|E|e]");
+        else
+            fprintf(stderr, "usage: truncate %s\n       truncate %s\n",
+                "[-c] -s [+|-]size[K|k|M|m|G|g|T|t|P|p|E|e] file ...",
+                "[-c] -r rfile file ...");
 	exit(EXIT_FAILURE);
 }
